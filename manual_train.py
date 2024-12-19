@@ -3,130 +3,75 @@ from __future__ import print_function
 import gzip
 import os
 import pickle
-import time
-import argparse
-from pyglet.window import key
-
-import gym
+import gymnasium as gym
 import numpy as np
+from gymnasium.utils.play import play
+from gymnasium.core import ActType, ObsType
 
 DATA_DIR = 'data'
 DATA_FILE = 'data.gzip'
+N_EPISODES = 20
 
-def key_press(k, mod):
-    global agent_action, restart_train, exit_train, pause_train, acceleration
-    
-    if k == key.ENTER: restart_train = True
-    if k == key.ESCAPE: exit_train = True
-    if k == key.SPACE:pause_train = not pause_train
+env = gym.make('CarRacing-v3', 
+               render_mode='rgb_array',
+               lap_complete_percent=0.95)
+env.reset()
+total_reward = 0
+episode = 1
 
-    if k == key.UP:
-        acceleration = True
-        agent_action[1] = 1.0
-        agent_action[2] = 0
+# if the file exists, append
+if os.path.exists(os.path.join(DATA_DIR, DATA_FILE)):
+    with gzip.open(os.path.join(DATA_DIR, DATA_FILE), 'rb') as f:
+        observations = pickle.load(f)
+else:
+    observations = list()
 
-    if k == key.DOWN: 
-        agent_action[2] = 1
+def env_callback(
+        obs_t: ObsType,
+        obs_tp1: ObsType,
+        action: ActType,
+        reward: float,
+        terminated: bool,
+        truncated: bool,
+        info: dict,
+    ):
+    global observations, total_reward, episode
 
-    if k == key.LEFT:
-        agent_action[0] = -1.0
-        agent_action[1] = 0.0   # no acceleration while turning
+    # Happens after reset
+    if type(obs_t) is tuple:
+        obs_t = obs_t[0]
 
-    if k == key.RIGHT:
-        agent_action[0] = +1.0
-        agent_action[1] = 0.0   # no acceleration when turning
+    observations.append((obs_t, action, obs_tp1, reward, (terminated or truncated)))
+    total_reward += reward
 
-def key_release(k, mod):
-    global agent_action, acceleration
-    if k == key.UP: 
-        acceleration = False
-        agent_action[1] = 0.0
+    if terminated or truncated:
+        if episode == N_EPISODES:
+            # store generated data
+            data_file_path = os.path.join(DATA_DIR, DATA_FILE)
+            print("Saving observations to " + data_file_path)
 
-    if k == key.DOWN:
-        agent_action[2] = 0.0
+            if not os.path.exists(DATA_DIR):
+                os.mkdir(DATA_DIR)
 
-    if k == key.LEFT:
-        agent_action[0] = 0
-        agent_action[1] = acceleration  # restore acceleration
+            with gzip.open(data_file_path, 'wb') as f:
+                pickle.dump(observations, f)
 
-    if k == key.RIGHT:
-        agent_action[0] = 0
-        agent_action[1] = acceleration  # restore acceleration
-
-def rollout(env):
-    global restart_train, agent_action, exit_train, pause_train
-    ACTIONS = env.action_space.shape[0]
-    agent_action = np.zeros(ACTIONS, dtype=np.float32)
-    exit_train = False
-    pause_train = False
-    restart_train = False
-
-    # if the file exists, append
-    if os.path.exists(os.path.join(DATA_DIR, DATA_FILE)):
-        with gzip.open(os.path.join(DATA_DIR, DATA_FILE), 'rb') as f:
-            observations = pickle.load(f)
-    else:
-        observations = list()
-
-    state = env.reset()
-    total_reward = 0
-    episode = 1
-    while 1:
-        env.render()
-        a = np.copy(agent_action)
-        old_state = state
-        if agent_action[2] != 0:
-            agent_action[2] = 0.1
-
-        state, reward, done, info = env.step(agent_action)
-
-        observations.append((old_state, a, state, reward, done))
-
-        total_reward += reward
-
-        if exit_train:
             env.close()
             return
 
-        if restart_train:
-            restart_train = False
-            state = env.reset()
-            continue
+        print("Episodes %i reward %0.2f" % (episode, total_reward))
 
-        if done:
-                
-            if episode == 20:
-                # store generated data
-                data_file_path = os.path.join(DATA_DIR, DATA_FILE)
-                print("Saving observations to " + data_file_path)
-
-                if not os.path.exists(DATA_DIR):
-                    os.mkdir(DATA_DIR)
-
-                with gzip.open(data_file_path, 'wb') as f:
-                    pickle.dump(observations, f)
-                
-                env.close()
-                return
-
-            print("Episodes %i reward %0.2f" % (episode, total_reward))
-
-            episode += 1
-
-            state = env.reset()
-
-        while pause_train:
-            env.render()
-            time.sleep(0.1)
+        episode += 1
+        env.reset()
 
 
 if __name__ == '__main__':
-    env = gym.make('CarRacing-v0')
-
-    env.render()
-    env.unwrapped.viewer.window.on_key_press = key_press
-    env.unwrapped.viewer.window.on_key_release = key_release
-
-    print("ACTIONS={}".format(env.action_space.shape[0]))
-
-    rollout(env)
+    play(env,
+        keys_to_action={
+            "w": np.array([0, 1, 0], dtype=np.float32),
+            "a": np.array([-1, 0, 0], dtype=np.float32),
+            "s": np.array([0, 0, 1], dtype=np.float32),
+            "d": np.array([1, 0, 0], dtype=np.float32),},
+            noop=np.array([0, 0, 0], dtype=np.float32),
+            callback=env_callback
+    )

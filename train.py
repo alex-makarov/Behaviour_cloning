@@ -2,6 +2,7 @@ import gzip
 import os
 import pickle
 import random
+import matplotlib.pyplot as plt
 
 from torchvision import transforms
 
@@ -11,12 +12,14 @@ import torch.nn as nn
 import torch.optim as optim
 
 BATCH_SIZE = 32  # mb size
-EPOCHS = 30  # number of epochs
+EPOCHS = 100  # number of epochs
 TRAIN_VAL_SPLIT = 0.85  # train/val ratio
 
 DATA_DIR = 'data'
 DATA_FILE = 'data.gzip'
 MODEL_FILE = 'model.pt'
+
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 # Set of all Actions
 actions_set = [[0, 0, 0],  # no action
@@ -86,8 +89,7 @@ def create_datasets():
 
     train_loader = torch.utils.data.DataLoader(train_set,
                                                batch_size=BATCH_SIZE,
-                                               shuffle=True,
-                                               num_workers=2)
+                                               shuffle=True)
 
     # test dataset
     x_val, y_val = x[int(len(x_train)):], y[int(len(y_train)):]
@@ -98,8 +100,7 @@ def create_datasets():
 
     val_loader = torch.utils.data.DataLoader(val_set,
                                              batch_size=BATCH_SIZE,
-                                             shuffle=False,
-                                             num_workers=2)
+                                             shuffle=False)
 
     return train_loader, val_loader
 
@@ -154,7 +155,7 @@ def Net():
         torch.nn.BatchNorm1d(120),
         torch.nn.Dropout(),
         torch.nn.Linear(120, len(actions_set)),
-    )
+    ).to(device)
 
     return model
 
@@ -168,15 +169,35 @@ def train(model):
     optimizer = optim.Adam(model.parameters())
     train_loader, val_order = create_datasets()  # read datasets
 
+    train_losses = []
+    train_accuracies = []
+
     # train
     for epoch in range(EPOCHS):
         print('Epoch {}/{}'.format(epoch + 1, EPOCHS))
-        train_epoch(model, loss_function, optimizer, train_loader)
+        l, a =train_epoch(model, loss_function, optimizer, train_loader)
+
+        train_losses.append(l)
+        train_accuracies.append(a)
+        plot_losses_accuracies(train_losses, train_accuracies)
+
         test(model, loss_function, val_order)
 
         # save model
         model_path = os.path.join(DATA_DIR, MODEL_FILE)
         torch.save(model.state_dict(), model_path)
+
+
+# Function to plot losses and accuracies
+def plot_losses_accuracies(train_losses, train_accuracies):
+    plt.plot(train_losses, label='Train Loss')
+    plt.xlabel('Epoch')
+    plt.plot(train_accuracies, label='Train Accuracy')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss/Accuracy')
+    plt.show(block=False)
+    plt.draw()
+    plt.pause(0.1)
 
 
 def train_epoch(model, loss_function, optimizer, data_loader):
@@ -190,13 +211,14 @@ def train_epoch(model, loss_function, optimizer, data_loader):
     # iterate over the training data
     for i, (inputs, labels) in enumerate(data_loader):
 
+        inputs, labels = inputs.to(device), labels.to(device)
+
         # zero the parameter gradients
         optimizer.zero_grad()
 
         with torch.set_grad_enabled(True):
             # forward
             outputs = model(inputs)
-            # print(outputs.size(), inputs.size())
             _, predictions = torch.max(outputs, 1)
             loss = loss_function(outputs, labels)
 
@@ -213,6 +235,8 @@ def train_epoch(model, loss_function, optimizer, data_loader):
 
     print('Train Loss: {:.4f}; Accuracy: {:.4f}'.format(total_loss, total_acc))
 
+    return total_loss, total_acc.cpu().detach().numpy()
+
 
 def test(model, loss_function, data_loader):
     """Test over the whole dataset"""
@@ -224,6 +248,8 @@ def test(model, loss_function, data_loader):
 
     # iterate over the validation data
     for i, (inputs, labels) in enumerate(data_loader):
+        inputs, labels = inputs.to(device), labels.to(device)
+
         # forward
         with torch.set_grad_enabled(False):
             outputs = model(inputs)
@@ -243,7 +269,7 @@ def test(model, loss_function, data_loader):
 
 if __name__ == '__main__':
     print('Training...')
-    m = Net()
+    m = Net().to(device)
     m.eval()
     train(m)
     print('Training Done!')
@@ -252,6 +278,7 @@ if __name__ == '__main__':
     print('Outputs of Neural Network are as follows:')
 
     for i, (input, label) in enumerate(x_ex):
+        input, label = input.to(device), label.to(device)
         print("Example:",i+1)
         output = m(input)
         print(output.tolist()[0])

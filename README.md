@@ -1,5 +1,8 @@
 # Behaviour Cloning
 
+## Alex Makarov's changes
+- Adapted to Gymnasium CarRacing-v3 environment
+
 ## Setup
 
 To install Anaconda follow the instructions in the following webpage:  

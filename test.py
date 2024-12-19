@@ -1,40 +1,38 @@
 from __future__ import print_function
 
 import os
-import gym
+import gymnasium as gym
 import numpy as np
 import torch
 
 from train import data_transform, actions_set, Net, DATA_DIR, MODEL_FILE
 from pyglet.window import key
+import pyglet
+
+# Press gas for first N iterations to get the car rolling
+MAX_THROTTLE_ITER = 10
+
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 def play(model):
     """
     Let the agent play
     :param model: the network
     """
-    env = gym.make('CarRacing-v0')
-
-    # use ESC to exit
-    global exit_test
-    exit_test = False
-
-    def key_press(k, mod):
-        global exit_test
-        if k == key.ESCAPE: exit_test = True
+    env = gym.make('CarRacing-v3', render_mode='human')
 
     # initialize environment
-    state = env.reset()
-    env.unwrapped.viewer.window.on_key_press = key_press
+    state, _ = env.reset()
+    throttle_iter = 0
 
     while 1:
         env.render()
 
-        state = np.moveaxis(state, 2, 0)  # channel first image
+        state = np.moveaxis(state, 2, 0)  # change shape from (96, 96, 3) to (3, 96, 96)
 
         # numpy to tensor
         state = torch.from_numpy(np.flip(state, axis=0).copy())
-        state = data_transform(state)  # apply transformations
+        state = data_transform(state).to(device)   # apply transformations
         state = state.unsqueeze(0)  # add additional dimension
 
         # forward
@@ -42,22 +40,22 @@ def play(model):
             outputs = model(state)
 
         normalized = torch.nn.functional.softmax(outputs, dim=1)
-
         # translate from net output to env action
         max_action = np.argmax(normalized.cpu().numpy()[0])
-        action = actions_set[max_action]
 
-        # adjust brake power
-        if action[2] != 0:
-            action[2] = 0.3
+        if throttle_iter <= MAX_THROTTLE_ITER:
+            # Send it
+            action = actions_set[3]
+            throttle_iter += 1
+        else:
+            action = actions_set[max_action]
 
-        state, _, terminal, _ = env.step(action)  # one step
+        action = np.array(action, dtype=np.float32)
 
-        # if terminal:
-        #     env.close()
-        #     return
+        # one step
+        state, _, terminated, truncated, _ = env.step(action)
 
-        if exit_test:
+        if terminated or truncated:
             env.close()
             return
 
