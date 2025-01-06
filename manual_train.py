@@ -5,7 +5,7 @@ import os
 import pickle
 import gymnasium as gym
 import numpy as np
-from gymnasium.utils.play import play
+from play_joystick import play
 from gymnasium.core import ActType, ObsType
 
 DATA_DIR = 'data'
@@ -66,12 +66,17 @@ def env_callback(
 
 
 if __name__ == '__main__':
+
+    # Controller mapping is as following:
+    # (axis_id, scale_factor, invert_axis) -> (min_action_value, max_action_value)
+    #
+    # The values below are for Thrustmaster T150 on my system
     play(env,
-        keys_to_action={
-            "w": np.array([0, 1, 0], dtype=np.float32),
-            "a": np.array([-1, 0, 0], dtype=np.float32),
-            "s": np.array([0, 0, 1], dtype=np.float32),
-            "d": np.array([1, 0, 0], dtype=np.float32),},
+            controller_to_action={
+                (0, 2.0, False): (-1.0, 1.0),
+                (2, 1.0, True): (0.0, 1.0),
+                (1, 1.0, True): (0.0, 1.0)
+            },
             noop=np.array([0, 0, 0], dtype=np.float32),
             callback=env_callback
     )
