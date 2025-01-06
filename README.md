@@ -2,6 +2,7 @@
 
 ## Alex Makarov's changes
 - Adapted to Gymnasium CarRacing-v3 environment
+- Added support for steering wheel input for manual training
 
 ## Setup
 
